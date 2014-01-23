@@ -1,9 +1,8 @@
 package com.dreikraft.vertx.lesscss;
 
-import com.dreikraft.vertx.AsyncResultBase;
-import com.dreikraft.vertx.json.JsonResult;
 import org.lesscss.LessCompiler;
 import org.lesscss.LessException;
+import org.lesscss.LessSource;
 import org.vertx.java.busmods.BusModBase;
 import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
@@ -11,172 +10,139 @@ import org.vertx.java.core.Future;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.file.FileProps;
-import org.vertx.java.core.file.FileSystemException;
 import org.vertx.java.core.json.JsonObject;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
+
 /**
- * Created by jan_solo on 09.01.14.
+ * This verticle compiles Less CSS files to CSS on startup or on demand. The Less source file may include other Less
+ * source files.
  */
 public class LessCssVerticle extends BusModBase {
 
-    public static final String LESSCSS_COMPILE_MESSAGE = "lesscss.compile";
+    public static final String ADDRESS_BASE = LessCssVerticle.class.getName();
+    public static final String ADDRESS_COMPILE = ADDRESS_BASE + "/compile";
+    public static final String CONFIG_REPLY_TIMEOUT = "replyTimeout";
+    public static final long REPLY_TIMEOUT = 30 * 1000;
+    public static final int ERR_CODE_BASE = 200;
+    public static final int ERR_CODE_INVALID_COMPILE_MESSAGE = ERR_CODE_BASE;
+    public static final String ERR_MSG_INVALID_COMPILE_MESSAGE = "invalid message at %1$s: %2$s";
+    public static final int ERR_CODE_COMPILE_FAILED = ERR_CODE_BASE + 1;
+    public static final String ERR_MSG_COMPILE_FAILED = "failed to compile %1$s: %2$s";
+    public static final int ERR_CODE_CSS_WRITE_FAILED = ERR_CODE_BASE + 2;
+    public static final String ERR_MSG_CSS_WRITE_FAILED = "failed to write %1$s: %2$s";
     public static final String LESS_SRC_FILE = "lessSrcFile";
     public static final String LESS_SRC_FILE_DEFAULT = "less/main.less";
     public static final String CSS_OUT_FILE = "cssOutFile";
     public static final String CSS_OUT_FILE_DEFAULT = "css/main.css";
+    public static final String CONFIG_COMPILE_ON_START = "compileOnStart";
+    public static final String CONFIG_COMPRESS_CSS = "compressCss";
+    private long replyTimeout;
+    private boolean compressCss;
 
     @Override
     public void start(final Future<Void> startedResult) {
 
+        // initilize the busmod
         super.start();
 
-        // compile on start
-        compileAndWrite(getOptionalStringConfig(LESS_SRC_FILE, LESS_SRC_FILE_DEFAULT),
-                getOptionalStringConfig(CSS_OUT_FILE, CSS_OUT_FILE_DEFAULT), new Handler<AsyncResult<Void>>() {
-            @Override
-            public void handle(AsyncResult<Void> compileResult) {
-                if (compileResult.failed()) {
-                    startedResult.setFailure(compileResult.cause());
-                } else {
-                    startedResult.setResult(null);
-                }
-            }
-        });
+        // initialize logger
+        logger.info(String.format("starting %1$s ...", this.getClass().getSimpleName()));
+
+        // initialize members
+        replyTimeout = getOptionalLongConfig(CONFIG_REPLY_TIMEOUT, REPLY_TIMEOUT);
+        compressCss = getOptionalBooleanConfig(CONFIG_COMPRESS_CSS, true);
 
         // compile on message
-        vertx.eventBus().registerHandler(LESSCSS_COMPILE_MESSAGE, new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(final Message<JsonObject> compileMessage) {
-                final JsonObject msgBody = compileMessage.body();
-                logger.info("received message: lesscss.compile " + msgBody.encodePrettily());
-                final String src = msgBody.getString(LESS_SRC_FILE);
-                final String out = msgBody.getString(CSS_OUT_FILE);
-                if (src == null && out == null) {
-                    compileMessage.reply(new JsonResult(JsonResult.Status.FAILED,
-                            "invalid message body: lesscss.compile" + msgBody.encode()));
-                } else {
-                    compileAndWrite(src, out, new Handler<AsyncResult<Void>>() {
+        eb.registerHandler(ADDRESS_COMPILE, new CompileMessageHandler());
+
+        // compile on start
+        if (getOptionalBooleanConfig(CONFIG_COMPILE_ON_START, true)) {
+            final JsonObject compileMsgBody = new JsonObject();
+            compileMsgBody.putString(LESS_SRC_FILE, getOptionalStringConfig(LESS_SRC_FILE, LESS_SRC_FILE_DEFAULT));
+            compileMsgBody.putString(CSS_OUT_FILE, getOptionalStringConfig(CSS_OUT_FILE, CSS_OUT_FILE_DEFAULT));
+            eb.sendWithTimeout(ADDRESS_COMPILE, compileMsgBody, replyTimeout,
+                    new AsyncResultHandler<Message<Void>>() {
                         @Override
-                        public void handle(AsyncResult<Void> compileResult) {
+                        public void handle(AsyncResult<Message<Void>> compileResult) {
                             if (compileResult.failed()) {
-                                logger.error("lesscss.compile failed: " + msgBody.encode(),
-                                        compileResult.cause());
-                                compileMessage.reply(new JsonResult(JsonResult.Status.FAILED,
-                                        "lesscss.compile failed: " + compileResult.cause().getMessage()));
+                                startedResult.setFailure(compileResult.cause());
                             } else {
-                                compileMessage.reply(new JsonResult(JsonResult.Status.SUCCESS,
-                                        "lesscss.compile succeeded: " + msgBody.encode()));
+                                startedResult.setResult(null);
                             }
                         }
                     });
-                }
-            }
-
-        });
-    }
-
-    private void compileAndWrite(final String src, final String target, final Handler<AsyncResult<Void>> resultHandler) {
-        compile(src, new Handler<AsyncResult<String>>() {
-            @Override
-            public void handle(AsyncResult<String> compileResult) {
-                if (compileResult.failed()) {
-                    resultHandler.handle(new AsyncResultBase<Void>(compileResult.cause()));
-                } else {
-                    writeCss(target, compileResult.result(), new Handler<AsyncResult<Void>>() {
-                        @Override
-                        public void handle(AsyncResult<Void> writeCssResult) {
-                            if (writeCssResult.failed()) {
-                                resultHandler.handle(new AsyncResultBase<Void>(writeCssResult.cause()));
-                            } else {
-                                resultHandler.handle(new AsyncResultBase<Void>((Void) null));
-                            }
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    private void compile(final String src, final Handler<AsyncResult<String>> resultHandler) {
-        final LessCompiler lessCompiler = new LessCompiler();
-        lessCompiler.setCompress(getOptionalBooleanConfig("compress", true));
-        vertx.fileSystem().readFile(src, new Handler<AsyncResult<Buffer>>() {
-            @Override
-            public void handle(AsyncResult<Buffer> readFileResult) {
-                if (readFileResult.failed()) {
-                    resultHandler.handle(new AsyncResultBase<String>(readFileResult.cause()));
-                } else {
-                    try {
-                        resultHandler.handle(new AsyncResultBase<String>(
-                                lessCompiler.compile(readFileResult.result().toString("UTF-8"))));
-                    } catch (LessException e) {
-                        resultHandler.handle(new AsyncResultBase<String>(e));
-                    }
-                }
-            }
-        });
-    }
-
-    private void writeCss(final String target, final String css, final Handler<AsyncResult<Void>> resultHandler) {
-        createCssDir(target, new AsyncResultHandler<Void>() {
-            @Override
-            public void handle(AsyncResult<Void> createCssDirResult) {
-                if (createCssDirResult.failed()) {
-                    resultHandler.handle(new AsyncResultBase<Void>(createCssDirResult.cause()));
-                } else {
-                    vertx.fileSystem().writeFile(target, new Buffer(css, "UTF-8"), new Handler<AsyncResult<Void>>() {
-                        @Override
-                        public void handle(AsyncResult<Void> writeFileResult) {
-                            if (writeFileResult.failed()) {
-                                resultHandler.handle(new AsyncResultBase<Void>(writeFileResult.cause()));
-                            } else {
-                                resultHandler.handle(new AsyncResultBase<Void>((Void) null));
-                            }
-                        }
-                    });
-                }
-            }
-        });
-    }
-
-    private void createCssDir(final String target, final AsyncResultHandler<Void> resultHandler) {
-        final String dir = extractDir(target);
-        vertx.fileSystem().props(dir, new Handler<AsyncResult<FileProps>>() {
-            @Override
-            public void handle(AsyncResult<FileProps> propsResult) {
-                if (propsResult.failed()) {
-                    vertx.fileSystem().mkdir(dir, true, new AsyncResultHandler<Void>() {
-                        @Override
-                        public void handle(AsyncResult<Void> mkdirResult) {
-                            if (mkdirResult.failed()) {
-                                resultHandler.handle(new AsyncResultBase<Void>(mkdirResult.cause()));
-                            } else {
-                                resultHandler.handle(new AsyncResultBase<Void>((Void)null));
-                            }
-                        }
-                    });
-                } else {
-                    if (!propsResult.result().isDirectory()) {
-                        resultHandler.handle(new AsyncResultBase<Void>(
-                                new FileSystemException("file already exists and is not a directory: " + dir)));
-                    } else {
-                        resultHandler.handle(new AsyncResultBase<Void>((Void)null));
-                    }
-                }
-            }
-        });
+        } else {
+            startedResult.setResult(null);
+        }
     }
 
     private String extractDir(String target) {
         final String[] targetDirParts = target.split("/");
         final StringBuilder dirBuilder = new StringBuilder();
         if (targetDirParts.length > 1) {
-            for (int i=0; i < targetDirParts.length - 1; i++) {
+            for (int i = 0; i < targetDirParts.length - 1; i++) {
                 dirBuilder.append(targetDirParts[i]).append(i < targetDirParts.length - 2 ? "/" : "");
             }
         }
         return dirBuilder.toString();
     }
 
+    private class CompileMessageHandler implements Handler<Message<JsonObject>> {
+        @Override
+        public void handle(final Message<JsonObject> compileMessage) {
+            final JsonObject msgBody = compileMessage.body();
+            if (logger.isDebugEnabled())
+                logger.debug(String.format("address %1$s received message: %2$s", compileMessage.address(),
+                        msgBody != null ? msgBody.encodePrettily() : null));
+            final String src = msgBody.getString(LESS_SRC_FILE);
+            final String target = msgBody.getString(CSS_OUT_FILE);
+            if (src == null || target == null) {
+                compileMessage.fail(ERR_CODE_INVALID_COMPILE_MESSAGE,
+                        String.format(ERR_MSG_INVALID_COMPILE_MESSAGE, compileMessage.address(), msgBody));
+            } else {
+                final LessCompiler lessCompiler = new LessCompiler();
+                lessCompiler.setCompress(compressCss);
+                logger.info(String.format("compiling lesscss source: %1$s", src));
+                final URL srcUrl = Thread.currentThread().getContextClassLoader().getResource(src);
+                if (logger.isDebugEnabled())
+                    logger.debug(String.format("lesscss source file url: %1$s", srcUrl.toExternalForm()));
+                try {
+                    final String css = lessCompiler.compile(new LessSource(new File(srcUrl.toURI())));
+                    final String dir = extractDir(target);
+                    vertx.fileSystem().mkdirSync(dir, true);
+                    vertx.fileSystem().writeFile(target, new Buffer(css, "UTF-8"),
+                            new WriteCssResultHandler(compileMessage, target));
+                } catch (LessException | IOException | URISyntaxException e) {
+                    compileMessage.fail(ERR_CODE_COMPILE_FAILED, String.format(ERR_MSG_COMPILE_FAILED, src,
+                            e.getMessage()));
+                }
+
+            }
+        }
+
+        private class WriteCssResultHandler implements Handler<AsyncResult<Void>> {
+            private final Message<JsonObject> compileMessage;
+            private final String target;
+
+            public WriteCssResultHandler(Message<JsonObject> compileMessage, String target) {
+                this.compileMessage = compileMessage;
+                this.target = target;
+            }
+
+            @Override
+            public void handle(AsyncResult<Void> writeCss) {
+                if (writeCss.succeeded()) {
+                    logger.info(String.format("successfully wrote compile css: %1$s", target));
+                    compileMessage.reply();
+                } else {
+                    compileMessage.fail(ERR_CODE_CSS_WRITE_FAILED,
+                            String.format(ERR_MSG_CSS_WRITE_FAILED, target, writeCss.cause()));
+                }
+            }
+        }
+    }
 }

@@ -1,9 +1,9 @@
 {
+  "main": "com.dreikraft.vertx.lesscss.LessCssVerticle",
   "description":"Compiles less to css files",
   "licenses": ["The Apache Software License Version 2.0"],
   "author": "Jan Illetschko",
   "keywords": ["less", "css", "lesscss"],
   "preserve-cwd": true,
-  "includes": "com.dreikraft~mod-utils~0.1"
-
+  "worker": true
 }
