@@ -37,13 +37,15 @@ public class LessCssVerticleTest extends TestVerticle {
         msg.putString(LessCssVerticle.LESS_SRC_FILE, LessCssVerticle.LESS_SRC_FILE_DEFAULT);
         msg.putString(LessCssVerticle.CSS_OUT_FILE, LessCssVerticle.CSS_OUT_FILE_DEFAULT);
 
-        vertx.eventBus().sendWithTimeout(LessCssVerticle.ADDRESS_COMPILE, msg, LessCssVerticle.REPLY_TIMEOUT,
-                new AsyncResultHandler<Message<Void>>() {
+        vertx.eventBus().sendWithTimeout(LessCssVerticle.ADDRESS_COMPILE, msg, 60*1000,
+                new AsyncResultHandler<Message<JsonObject>>() {
                     @Override
-                    public void handle(AsyncResult<Message<Void>> result) {
+                    public void handle(AsyncResult<Message<JsonObject>> result) {
                         if (result.failed()) {
                             VertxAssert.fail(result.cause().getMessage());
                         }
+                        VertxAssert.assertTrue(vertx.fileSystem().existsSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT));
+                        vertx.fileSystem().deleteSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT);
                         VertxAssert.testComplete();
                     }
                 });

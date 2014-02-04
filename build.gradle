@@ -60,7 +60,10 @@ dependencies {
   // If you're creating Groovy compiled verticles you may need the following dependencies
   //provided "org.codehaus.groovy:groovy-all:$groovyVersion"
   //provided "io.vertx:lang-groovy:$groovyLangModVersion@jar"
-  compile "org.lesscss:lesscss:1.3.3"
+  provided "org.mozilla:rhino:1.7R4"
+  compile("org.lesscss:lesscss:1.3.3") {
+    exclude group: "org.mozilla", module: "rhino"
+  }
 }
 
 test {
