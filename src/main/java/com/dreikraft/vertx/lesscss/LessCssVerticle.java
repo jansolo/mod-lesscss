@@ -36,14 +36,16 @@ public class LessCssVerticle extends BusModBase {
     private static final String REPLY_MESSAGE = "message";
     private boolean compressCss;
 
+    /**
+     * Starts the verticle and registeres the event bus addresses to compile less files to css.
+     *
+     * @param startedResult was the startup of the verticle successful?
+     */
     @Override
     public void start(final Future<Void> startedResult) {
 
         // initialize the busmod
         super.start();
-
-        // initialize logger
-        logger.info(String.format("starting %1$s ...", this.getClass().getSimpleName()));
 
         // initialize members
         compressCss = getOptionalBooleanConfig(CONFIG_COMPRESS_CSS, true);
