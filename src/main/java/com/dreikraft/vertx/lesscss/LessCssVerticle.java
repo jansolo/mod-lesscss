@@ -22,7 +22,6 @@ public class LessCssVerticle extends BusModBase {
 
     public static final String ADDRESS_BASE = LessCssVerticle.class.getName();
     public static final String ADDRESS_COMPILE = ADDRESS_BASE + "/compile";
-    public static final int ERR_CODE_BASE = 500;
     public static final String LESS_SRC_FILE = "lessSrcFile";
     public static final String CSS_OUT_FILE = "cssOutFile";
     public static final String CONFIG_COMPILE_ON_START = "compileOnStart";
@@ -106,8 +105,9 @@ public class LessCssVerticle extends BusModBase {
                 final String src = msgBody.getString(LESS_SRC_FILE);
                 final String target = msgBody.getString(CSS_OUT_FILE);
                 if (src == null || target == null) {
-                    compileMessage.fail(ERR_CODE_BASE,
-                            String.format(ERR_MSG_INVALID_COMPILE_MESSAGE, compileMessage.address(), msgBody));
+                    final String errMsg = String.format(ERR_MSG_INVALID_COMPILE_MESSAGE, compileMessage.address(),
+                            msgBody);
+                    sendError(compileMessage, errMsg, new IllegalArgumentException(errMsg));
                 } else {
                     final LessCompiler lessCompiler = new LessCompiler();
                     lessCompiler.setCompress(compressCss);
@@ -122,15 +122,12 @@ public class LessCssVerticle extends BusModBase {
                         vertx.fileSystem().writeFile(target, new Buffer(css, "UTF-8"),
                                 new WriteCssResultHandler(compileMessage, target));
                     } catch (LessException | IOException | URISyntaxException e) {
-                        compileMessage.fail(ERR_CODE_BASE, String.format(ERR_MSG_COMPILE_FAILED, src,
-                                e.getMessage()));
+                        sendError(compileMessage, String.format(ERR_MSG_COMPILE_FAILED, src, e.getMessage()), e);
                     }
 
                 }
             } catch (RuntimeException ex) {
-                final String msg = String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), msgBody);
-                logger.error(msg, ex);
-                compileMessage.fail(ERR_CODE_BASE, msg);
+                sendError(compileMessage, String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), msgBody), ex);
             }
         }
 
@@ -148,17 +145,16 @@ public class LessCssVerticle extends BusModBase {
                 try {
                     if (writeCss.succeeded()) {
                         new JsonObject().putString(REPLY_MESSAGE, String.format("successfully wrote compiled" +
-                                " css: %1$s",                                target));
+                                " css: %1$s", target));
                         sendOK(compileMessage, new JsonObject().putString(REPLY_MESSAGE,
                                 String.format("successfully wrote compiled css: %1$s", target)));
                     } else {
-                        compileMessage.fail(ERR_CODE_BASE,
-                                String.format(ERR_MSG_CSS_WRITE_FAILED, target, writeCss.cause()));
+                        sendError(compileMessage, String.format(ERR_MSG_CSS_WRITE_FAILED, target, writeCss.cause()),
+                                (Exception) writeCss.cause());
                     }
                 } catch (RuntimeException ex) {
-                    final String msg = String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), compileMessage.body());
-                    logger.error(msg, ex);
-                    compileMessage.fail(ERR_CODE_BASE, msg);
+                    sendError(compileMessage, String.format(ERR_MSG_UNEXPECTED, ex.getMessage(), compileMessage.body()),
+                            ex);
                 }
             }
         }
