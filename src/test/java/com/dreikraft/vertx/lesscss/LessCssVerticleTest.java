@@ -3,13 +3,16 @@ package com.dreikraft.vertx.lesscss;
 import org.junit.Test;
 import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.AsyncResultHandler;
+import org.vertx.java.core.Handler;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.testtools.TestVerticle;
 import org.vertx.testtools.VertxAssert;
 
 /**
- * Created by jan_solo on 09.01.14.
+ * Tests the less css verticle.
+ *
+ * @author jan_solo
  */
 public class LessCssVerticleTest extends TestVerticle {
 
@@ -37,17 +40,18 @@ public class LessCssVerticleTest extends TestVerticle {
         msg.putString(LessCssVerticle.LESS_SRC_FILE, LessCssVerticle.LESS_SRC_FILE_DEFAULT);
         msg.putString(LessCssVerticle.CSS_OUT_FILE, LessCssVerticle.CSS_OUT_FILE_DEFAULT);
 
-        vertx.eventBus().sendWithTimeout(LessCssVerticle.ADDRESS_COMPILE, msg, 60*1000,
-                new AsyncResultHandler<Message<JsonObject>>() {
-                    @Override
-                    public void handle(AsyncResult<Message<JsonObject>> result) {
-                        if (result.failed()) {
-                            VertxAssert.fail(result.cause().getMessage());
-                        }
-                        VertxAssert.assertTrue(vertx.fileSystem().existsSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT));
-                        vertx.fileSystem().deleteSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT);
-                        VertxAssert.testComplete();
-                    }
-                });
+        vertx.eventBus().send(LessCssVerticle.ADDRESS_COMPILE, msg, new Handler<Message<JsonObject>>() {
+            @Override
+            public void handle(final Message<JsonObject> result) {
+                try {
+                    VertxAssert.assertEquals("ok", result.body().getString("status"));
+                    VertxAssert.assertTrue(vertx.fileSystem().existsSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT));
+                    vertx.fileSystem().deleteSync(LessCssVerticle.CSS_OUT_FILE_DEFAULT);
+                } catch (RuntimeException ex) {
+                    VertxAssert.fail(ex.getMessage());
+                }
+                VertxAssert.testComplete();
+            }
+        });
     }
 }
