@@ -37,7 +37,7 @@ public class LessCssVerticleTest extends TestVerticle {
     @Test
     public void testCompile() {
         final JsonObject msg = new JsonObject();
-        msg.putString(LessCssVerticle.LESS_SRC_FILE, LessCssVerticle.LESS_SRC_FILE_DEFAULT);
+        msg.putString(LessCssVerticle.LESS_SRC_FILE, "lesstest/main.less");
         msg.putString(LessCssVerticle.CSS_OUT_FILE, LessCssVerticle.CSS_OUT_FILE_DEFAULT);
 
         vertx.eventBus().send(LessCssVerticle.ADDRESS_COMPILE, msg, new Handler<Message<JsonObject>>() {
